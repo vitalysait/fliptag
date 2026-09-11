@@ -38,32 +38,13 @@ def api(method, **params):
 
 def send(chat_id, text):
     try:
-        api("sendMessage", chat_id=chat_id, text=text, parse_mode="HTML", disable_web_page_preview=True)
+        api("sendMessage", chat_id=chat_id, text=text, disable_web_page_preview=True)
     except Exception as e:
         print("send error:", repr(e), flush=True)
 
 
 def reply(msg, text):
     send(msg["chat"]["id"], text)
-
-
-# ---------------- состояние боа ----------------
-
-def load_state():
-    if STATE_PATH.exists():
-        try:
-            return json.loads(STATE_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return {"admins": [], "allowed": [], "filters": {"image": True, "sound": True}}
-
-
-def save_state(st):
-    STATE_PATH.write_text(json.dumps(st, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def is_admin(chat_id):
-    return chat_id in state["admins"]
 
 
 # ---------------- git ----------------
@@ -85,8 +66,7 @@ def push_changes(message):
         if c.returncode != 0:
             return False
     git("pull", "--rebase")
-    p = git("push")
-    return p.returncode == 0
+    return git("push").returncode == 0
 
 
 # ---------------- файлы ----------------
@@ -140,227 +120,108 @@ def save_and_publish(chat_id, kind, data, mime, fname):
     cfg[kind] = rel
     write_config(cfg)
     if push_changes(f"update {kind}: {rel}"):
-        reply_to_send(chat_id, f"✅ {kind} обновлён → {rel}\nСайт обновится сам через ~1 минуту.")
+        words = {"image": ("Картинка", "🖼"), "sound": ("Звук", "🎵")}[kind]
+        if kind == "image":
+            reply_send(chat_id, "🖼 Готово! Картинка поменялась.\nЧерез минуту она появится на сайте.")
+        else:
+            reply_send(chat_id, "🎵 Готово! Звук поменялся.\nЧерез минуту он будет на сайте.")
     else:
-        reply_to_send(chat_id, "⚠️ Файл сохранён, но не отправился в git. Проверь авторизацию: gh auth setup-git")
+        reply_send(chat_id, "⚠️ Что-то пошло не так, файл не загрузился на сайт.\nНапиши сюда об этом.")
     return rel
 
 
-def reply_to_send(chat_id, text):
+def reply_send(chat_id, text):
     send(chat_id, text)
 
 
 # ---------------- команды ----------------
 
+GUIDE = (
+    "Как сменить картинку:\n"
+    "1. Нажми на скрепку 📎\n"
+    "2. Выбери фото\n"
+    "3. Нажми отправить\n\n"
+    "Как сменить звук:\n"
+    "1. Нажми на скрепку 📎\n"
+    "2. Выбери аудио (mp3)\n"
+    "3. Нажми отправить\n\n"
+    "И всё! Через минуту на сайте будут новые картинка и звук."
+)
+
+
 def cmd_start(msg):
-    chat_id = msg["chat"]["id"]
-    st = load_state()
-    if chat_id not in st["allowed"]:
-        st["allowed"].append(chat_id)
-    if not st["admins"]:
-        st["admins"].append(chat_id)
-        save_state(st)
-        reply(msg, "🚀 Бот запущен и настроен!\n"
-                   "<b>Ты назначен админом.</b>\n\n"
-                   "Отправь мне фото или аудио — они сразу появятся на сайте.\n"
-                   "Нажми / — там все команды.")
-        return
-    save_state(st)
-    reply(msg, "🚀 С возвращением! Отправь фото 🖼 или аудио 🎵 — обновлю сайт.\n"
-               "Меню команд: /")
+    reply(msg,
+          "Привет! Я меняю картинку и звук на сайте.\n\n"
+          + GUIDE)
 
 
 def cmd_help(msg):
-    reply(msg,
-          "📚 <b>Как пользоваться</b>\n\n"
-          "🖼 Отправь <b>фото</b> — заменит картинку на сайте\n"
-          "🎵 Отправь <b>аудио/голосовое</b> — заменит звук\n"
-          "📎 Файл-картинку или файл-аудио тоже подойдёт\n\n"
-          "/status — текущие картинка и звук\n"
-          "/settings — фильтры (приём фото/аудио)\n"
-          "/admins — управление админами\n"
-          "/delchat — удалить чат из настроек")
+    reply(msg, GUIDE)
 
 
 def cmd_status(msg):
     cfg = read_config()
-    fs = {"image": False, "sound": False}
-    for k in fs:
-        if cfg.get(k) and (BASE_DIR / cfg[k]).exists():
-            fs[k] = True
-    im = cfg.get("image") or "─ не задано"
-    if fs["image"]:
-        size = (BASE_DIR / cfg["image"]).stat().st_size
-        im = f"{im} ({size // 1024} КБ) ✅"
-    so = cfg.get("sound") or "─ не задано"
-    if fs["sound"]:
-        size = (BASE_DIR / cfg["sound"]).stat().st_size
-        so = f"{so} ({size // 1024} КБ) ✅"
+    im = cfg.get("image") or "пока нет"
+    so = cfg.get("sound") or "пока нет"
     reply(msg,
-          "📊 <b>Статус сайта</b>\n\n"
-          f"🖼 Картинка: <i>{im}</i>\n"
-          f"🎵 Звук: <i>{so}</i>")
-
-
-def cmd_settings(msg):
-    if not is_admin(msg["chat"]["id"]):
-        reply(msg, "⛔ Доступно только админу.")
-        return
-    f = state["filters"]
-    reply(msg,
-          "⚙️ <b>Настройки фильтров</b>\n\n"
-          f"🖼 Приём фото: {'✅ включён' if f.get('image', True) else '❌ выключен'}\n"
-          f"🎵 Приём аудио: {'✅ включён' if f.get('sound', True) else '❌ выключен'}\n\n"
-          "Команды:\n"
-          "/image on | /image off\n"
-          "/sound on | /sound off")
-
-
-def set_filter(msg, key):
-    if not is_admin(msg["chat"]["id"]):
-        reply(msg, "⛔ Доступно только админу.")
-        return
-    words = (msg.get("text") or "").split()
-    if len(words) < 2 or words[1].lower() not in ("on", "off"):
-        reply(msg, f"Использование: /{key} on | off")
-        return
-    st = load_state()
-    st["filters"][key] = (words[1].lower() == "on")
-    save_state(st)
-    global state
-    state = st
-    reply(msg, f"✅ Приём <b>{key}</b>: {'включён' if st['filters'][key] else 'выключен'}")
-
-
-def cmd_admins(msg):
-    if not is_admin(msg["chat"]["id"]):
-        reply(msg, "⛔ Доступно только админу.")
-        return
-    st = load_state()
-    lst = "".join(f"👑 {a}\n" for a in st["admins"]) if st["admins"] else "<i>нет админов</i>"
-    reply(msg,
-          "👑 <b>Админы</b>\n\n" + lst +
-          "\nДобавить: /addadmin <b>ID</b>\nУдалить: /deladmin <b>ID</b>")
-
-
-def add_admins(msg, mode):
-    if not is_admin(msg["chat"]["id"]):
-        reply(msg, "⛔ Доступно только админу.")
-        return
-    words = (msg.get("text") or "").split()
-    if len(words) < 2 or not words[1].isdigit():
-        reply(msg, "Введи ID после команды: /addadmin 123456789")
-        return
-    uid = int(words[1])
-    st = load_state()
-    if mode == "add":
-        if uid not in st["admins"]:
-            st["admins"].append(uid)
-        save_state(st)
-        reply(msg, f"✅ Админ добавлен: {uid}")
-    else:
-        st["admins"] = [a for a in st["admins"] if a != uid]
-        save_state(st)
-        reply(msg, f"🗑 Админ удалён: {uid}")
-    global state
-    state = st
-
-
-def cmd_delchat(msg):
-    if not is_admin(msg["chat"]["id"]):
-        reply(msg, "⛔ Доступно только админу.")
-        return
-    words = (msg.get("text") or "").split()
-    current_chat = msg["chat"]["id"]
-    if len(words) < 2 or not words[1].isdigit():
-        reply(msg, "Введи ID чата после команды: /delchat 123456789")
-    uid = int(words[1])
-    st = load_state()
-    st["allowed"] = [c for c in st["allowed"] if c != uid]
-    save_state(st)
-    reply(msg, f"🗑 Чат удалён из настроек: {uid}")
-    global state
-    state = st
+          f"Сейчас на сайте:\n"
+          f"🖼 Картинка: {im}\n"
+          f"🎵 Звук: {so}")
 
 
 # ---------------- обработка ----------------
 
 def handle_message(msg):
     text = (msg.get("text") or "").strip()
-    chat_id = msg["chat"]["id"]
 
-    if text == "/start":
+    if text in ("/start", "старт", "привет", "здравствуй", "хай", "hello"):
         cmd_start(msg)
         return
-    if text == "/help":
+    if text in ("/help", "помощь", "что делать", "как"):
         cmd_help(msg)
         return
-    if text == "/status":
+    if text in ("/status", "статус", "что на сайте"):
         cmd_status(msg)
         return
-    if text == "/settings":
-        cmd_settings(msg)
-        return
-    if text.startswith("/addadmin"):
-        add_admins(msg, "add")
-        return
-    if text.startswith("/deladmin"):
-        add_admins(msg, "del")
-        return
-    if text.startswith("/delchat"):
-        cmd_delchat(msg)
-        return
-    if text.startswith("/image on") or text.startswith("/image off"):
-        set_filter(msg, "image")
-        return
-    if text.startswith("/sound on") or text.startswith("/sound off"):
-        set_filter(msg, "sound")
-        return
     if text.startswith("/"):
-        cmd_help(msg)
-        return
-
-    if not state["filters"].get("image", True) and not state["filters"].get("sound", True):
-        reply(msg, "⛔ Приём файлов сейчас выключен. Админ: /settings")
+        reply(msg, "Не знаю такую команду. Просто отправь фото 🖼 или аудио 🎵")
         return
 
     # ---- картинка ----
     photo = msg.get("photo")
     if photo:
         fid = photo[-1]["file_id"]
-        info = api("getFile", file_id=fid)
-        path = info["result"]["file_path"]
+        path = api("getFile", file_id=fid)["result"]["file_path"]
         ext = Path(path).suffix or ".jpg"
         data = download(path)
-        save_and_publish(chat_id, "image", data, "image/" + ext.lstrip("."), "")
+        save_and_publish(msg["chat"]["id"], "image", data, "image/" + ext.lstrip("."), "")
         return
 
+    # ---- документ ----
     doc = msg.get("document")
     if doc:
         mime = doc.get("mime_type") or ""
         fname = doc.get("file_name") or ""
+        data = download(api("getFile", file_id=doc["file_id"])["result"]["file_path"])
         if mime.startswith("image/"):
-            data = download(api("getFile", file_id=doc["file_id"])["result"]["file_path"])
-            save_and_publish(chat_id, "image", data, mime, fname)
-        elif mime.startswith("audio/"):
-            data = download(api("getFile", file_id=doc["file_id"])["result"]["file_path"])
-            save_and_publish(chat_id, "sound", data, mime, fname)
-        else:
-            reply(msg, "Отправь фото или аудио (mp3/wav/m4a...).")
+            save_and_publish(msg["chat"]["id"], "image", data, mime, fname)
+            return
+        if mime.startswith("audio/"):
+            save_and_publish(msg["chat"]["id"], "sound", data, mime, fname)
+            return
+        reply(msg, "Это не фото и не музыка. Мне нужно фото 🖼 или аудио 🎵")
         return
 
+    # ---- аудио / голосовое ----
     audio = msg.get("audio") or msg.get("voice") or msg.get("video_note") or msg.get("video")
     if audio:
         mime = audio.get("mime_type") if isinstance(audio, dict) else None
         fname = audio.get("file_name") if isinstance(audio, dict) else ""
         data = download(api("getFile", file_id=audio["file_id"])["result"]["file_path"])
-        save_and_publish(chat_id, "sound", data, mime, fname)
+        save_and_publish(msg["chat"]["id"], "sound", data, mime, fname)
         return
 
-    if any(x in msg for x in ("document", "audio", "voice", "video")):
-        return
-
-    reply(msg, "Не понял. Пришли фото или аудио.")
+    reply(msg, "Отправь фото 🖼 или аудио 🎵 — и я всё сделаю.\nЕсли не понятно — напиши «как».")
 
 
 # ---------------- main ----------------
@@ -368,12 +229,9 @@ def handle_message(msg):
 def setup_menu():
     try:
         api("setMyCommands", commands=json.dumps([
-            {"command": "start", "description": "🚀 Запустить бота и приветствие"},
-            {"command": "help", "description": "📚 Помощь по использованию"},
-            {"command": "status", "description": "📊 Статус и информация"},
-            {"command": "settings", "description": "⚙️ Настройки фильтров"},
-            {"command": "admins", "description": "👑 Управление админами"},
-            {"command": "delchat", "description": "🗑 Удалить чат из настроек"},
+            {"command": "start", "description": "Приветствие"},
+            {"command": "help", "description": "Как менять картинку и звук"},
+            {"command": "status", "description": "Что сейчас на сайте"},
         ]))
         print("Menu set.", flush=True)
     except Exception as e:
@@ -381,9 +239,8 @@ def setup_menu():
 
 
 def main():
-    global TOKEN, state
+    global TOKEN
     TOKEN = load_token()
-    state = load_state()
     offset = 0
     setup_menu()
     print("Bot started.", flush=True)
