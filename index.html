@@ -78,22 +78,6 @@
     100% { transform: scale(1.45);  opacity: 0; }
   }
 
-  input[type="file"] { display: none; }
-
-  .actions { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
-
-  .btn {
-    padding: 12px 22px;
-    font-size: 1rem;
-    border: 1px solid #3a3a55;
-    border-radius: 12px;
-    background: #26263c;
-    color: #fff;
-    cursor: pointer;
-    transition: background .15s ease, border-color .15s ease;
-  }
-  .btn:hover { background: #33334c; border-color: #4c4c6e; }
-
   .lock-panel {
     display: flex;
     align-items: center;
@@ -115,6 +99,17 @@
   }
   #codeInput:focus { border-color: #4c4c6e; }
 
+  .btn {
+    padding: 12px 22px;
+    font-size: 1rem;
+    border: 1px solid #3a3a55;
+    border-radius: 12px;
+    background: #26263c;
+    color: #fff;
+    cursor: pointer;
+    transition: background .15s ease, border-color .15s ease;
+  }
+  .btn:hover { background: #33334c; border-color: #4c4c6e; }
   .btn.danger:hover { background: #4a2226; border-color: #8a4a52; }
 
   .status { font-size: .9rem; opacity: .8; min-height: 1.2em; }
@@ -139,13 +134,6 @@
     </button>
   </div>
 
-  <div class="actions">
-    <label class="btn" for="soundImg">Заменить картинку</label>
-    <input type="file" id="soundImg" accept="image/*">
-    <label class="btn" for="soundFile">Заменить звук</label>
-    <input type="file" id="soundFile" accept="audio/*">
-  </div>
-
   <p class="status" id="status"></p>
 
   <div class="lock-panel">
@@ -155,56 +143,14 @@
 
 <script>
   const button = document.getElementById('soundButton');
-  const imgInput = document.getElementById('soundImg');
-  const fileInput = document.getElementById('soundFile');
   const codeInput = document.getElementById('codeInput');
   const stopBtn = document.getElementById('stopBtn');
   const status = document.getElementById('status');
 
   const STOP_CODE = '38406';
   let audio = null;
-  let db = null;
 
-  /* ======== IndexedDB ======== */
-  function openDB() {
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open('sound-button-db', 1);
-      req.onupgradeneeded = () => {
-        req.result.createObjectStore('files');
-      };
-      req.onsuccess = () => { db = req.result; resolve(db); };
-      req.onerror = () => reject(req.error);
-    });
-  }
-
-  function dbPut(key, blob) {
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('files', 'readwrite');
-      tx.objectStore('files').put(blob, key);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  }
-
-  function dbGet(key) {
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('files', 'readonly');
-      const req = tx.objectStore('files').get(key);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-  }
-
-  function dbDelete(key) {
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('files', 'readwrite');
-      tx.objectStore('files').delete(key);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  }
-
-  /* ======== дефолтный звук (WAV) ======== */
+  /* ---------- дефолтный звук (генерируется) ---------- */
   function beepWavBlob() {
     const sr = 44100, dur = 0.6, n = Math.floor(sr * dur);
     const buffer = new ArrayBuffer(44 + n * 2);
@@ -221,24 +167,31 @@
       const v = Math.sin(2 * Math.PI * 880 * t) * env * 32000;
       view.setInt16(44 + i * 2, v, true);
     }
-    return new Blob([buffer], { type: 'audio/wav' });
+    return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
   }
 
-  /* ======== звук ======== */
-  let objectUrl = null;
+  let soundUrl = null;
+  let defaultBeep = null;
 
-  async function getSoundUrl() {
-    const blob = await dbGet('audio');
-    if (!blob) return null;
-    if (objectUrl) URL.revokeObjectURL(objectUrl);
-    objectUrl = URL.createObjectURL(blob);
-    return objectUrl;
+  async function loadConfig() {
+    try {
+      const res = await fetch('config.json', { cache: 'no-store' });
+      const cfg = await res.json();
+      if (cfg.image) {
+        for (const el of [...button.querySelectorAll('img, svg')]) el.remove();
+        const img = document.createElement('img');
+        img.src = cfg.image;
+        button.appendChild(img);
+      }
+      if (cfg.sound) soundUrl = cfg.sound;
+    } catch (e) {}
+    defaultBeep = beepWavBlob();
   }
 
-  async function startSound() {
+  /* ---------- звук ---------- */
+  function startSound() {
     if (audio) { audio.currentTime = 0; return; }
-    const url = await getSoundUrl();
-    const a = new Audio(url || URL.createObjectURL(beepWavBlob()));
+    const a = new Audio(soundUrl || defaultBeep);
     a.loop = true;
     a.play().catch(() => {
       status.textContent = 'Звук не смог включиться сам — нажми на кнопку.';
@@ -246,16 +199,14 @@
     audio = a;
     a.addEventListener('error', () => { audio = null; });
     button.classList.add('playing');
-    try { await dbPut('on', true); } catch(e) {}
   }
 
   function stopSound() {
     if (audio) { audio.pause(); audio.currentTime = 0; audio = null; }
     button.classList.remove('playing');
-    dbDelete('on');
+    localStorage.removeItem('sb_on');
   }
 
-  /* ======== код выключения ======== */
   stopBtn.addEventListener('click', tryStop);
   codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryStop(); });
 
@@ -271,53 +222,16 @@
     codeInput.value = '';
   }
 
-  /* ======== кнопка ======== */
-  button.addEventListener('click', () => startSound());
-
-  /* ======== картинка ======== */
-  async function applyImage(blob) {
-    for (const el of [...button.querySelectorAll('img, svg')]) el.remove();
-    const img = document.createElement('img');
-    img.src = URL.createObjectURL(blob);
-    button.appendChild(img);
-  }
-
-  imgInput.addEventListener('change', async () => {
-    const file = imgInput.files[0];
-    if (!file) return;
-    const blob = new Blob([await file.arrayBuffer()], { type: file.type });
-    await dbPut('image', blob);
-    await applyImage(blob);
-    status.className = 'status ok';
-    status.textContent = 'Картинка сохранена.';
-    imgInput.value = '';
+  /* ---------- кнопка ---------- */
+  button.addEventListener('click', () => {
+    startSound();
+    localStorage.setItem('sb_on', '1');
   });
 
-  /* ======== замена звука ======== */
-  fileInput.addEventListener('change', async () => {
-    const file = fileInput.files[0];
-    if (!file) return;
-    const blob = new Blob([await file.arrayBuffer()], { type: file.type });
-    await dbPut('audio', blob);
-    if (audio) { audio.pause(); audio = null; }
-    button.classList.remove('playing');
-    await startSound();
-    status.className = 'status ok';
-    status.textContent = 'Звук заменён и играет.';
-    fileInput.value = '';
-  });
-
-  /* ======== восстановление после загрузки ======== */
+  /* ---------- загрузка ---------- */
   (async () => {
-    await openDB();
-    try {
-      const imgBlob = await dbGet('image');
-      if (imgBlob) await applyImage(imgBlob);
-    } catch (e) {}
-    try {
-      const isOn = await dbGet('on');
-      if (isOn) startSound();
-    } catch (e) {}
+    await loadConfig();
+    if (localStorage.getItem('sb_on') === '1') startSound();
   })();
 </script>
 </body>

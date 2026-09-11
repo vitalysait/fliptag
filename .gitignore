@@ -1,0 +1,5 @@
+.git/
+bot/.env
+bot/__pycache__/
+*.pyc
+.vscode/
