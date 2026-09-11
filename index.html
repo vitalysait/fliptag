@@ -189,16 +189,25 @@
   }
 
   /* ---------- звук ---------- */
+  let playAttempted = false;
+
   function startSound() {
-    if (audio) { audio.currentTime = 0; return; }
-    const a = new Audio(soundUrl || defaultBeep);
-    a.loop = true;
-    a.play().catch(() => {
-      status.textContent = 'Звук не смог включиться сам — нажми на кнопку.';
-    });
-    audio = a;
-    a.addEventListener('error', () => { audio = null; });
-    button.classList.add('playing');
+    if (!audio) {
+      audio = new Audio(soundUrl || defaultBeep);
+      audio.loop = true;
+      audio.addEventListener('error', () => { audio = null; playAttempted = false; });
+    }
+    audio.currentTime = 0;
+    const p = audio.play();
+    if (p && typeof p.then === 'function') {
+      p.then(() => {
+        button.classList.add('playing');
+      }).catch(() => {
+        audio = null;
+        playAttempted = false;
+      });
+    }
+    playAttempted = true;
   }
 
   function stopSound() {
