@@ -42,6 +42,7 @@ def send(chat_id, text):
 
 def download(file_path, dest):
     url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
+    dest.parent.mkdir(parents=True, exist_ok=True)
     with urllib.request.urlopen(url, timeout=120) as r:
         data = r.read()
     dest.write_bytes(data)
@@ -178,7 +179,7 @@ def main():
     TOKEN = load_token()
     CHAT = None
     offset = 0
-    print("Bot started.")
+    print("Bot started.", flush=True)
     while True:
         try:
             up = api("getUpdates", offset=offset, timeout=25)
@@ -186,9 +187,10 @@ def main():
                 offset = u["update_id"] + 1
                 if "message" in u:
                     CHAT = u["message"]["chat"]["id"]
+                    print("incoming:", u["message"].keys(), flush=True)
                     handle_message(u["message"])
         except Exception as e:
-            print("loop error:", e)
+            print("loop error:", repr(e), flush=True)
             time.sleep(3)
 
 
