@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/**/*.py": {
+      "excludeFiles": "{bot/**,assets/**,watch.ps1,*.md}"
+    }
+  }
+}
