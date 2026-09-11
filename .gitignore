@@ -1,5 +1,7 @@
 .git/
 bot/.env
 bot/__pycache__/
+bot/state.json
+bot/tmp/
 *.pyc
 .vscode/
