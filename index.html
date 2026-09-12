@@ -117,22 +117,36 @@
   .status.ok { color: #4cd964; }
 
   .video-box {
-    width: 480px;
-    max-width: 92vw;
-    aspect-ratio: 16 / 9;
-    border-radius: 14px;
-    overflow: hidden;
-    background: #000;
-    box-shadow: 0 10px 30px rgba(0,0,0,.5);
+    position: fixed;
+    inset: 0;
+    z-index: -1;
     display: none;
   }
   .video-box.show { display: block; }
-  .video-box video { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .video-box video {
+    width: 100vw;
+    height: 100vh;
+    object-fit: cover;
+    display: block;
+  }
+  .video-box::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,.45);
+    pointer-events: none;
+  }
+  body.has-video h1 { text-shadow: 0 1px 6px rgba(0,0,0,.8); }
+  body.has-video { background: #000; }
 </style>
 </head>
 <body>
 
   <h1>Sound Button</h1>
+
+  <div class="video-box" id="videoBox">
+    <video id="videoEl" loop playsinline muted></video>
+  </div>
 
   <div class="stage">
     <button id="soundButton" title="Звук включён навсегда (выключить можно только кодом)">
@@ -145,10 +159,6 @@
         <circle cx="66" cy="64" r="5" fill="#fff" opacity=".85"/>
       </svg>
     </button>
-  </div>
-
-  <div class="video-box" id="videoBox">
-    <video id="videoEl" loop playsinline muted></video>
   </div>
 
   <p class="status" id="status"></p>
@@ -203,6 +213,7 @@
   function setVideoEnabled(enabled) {
     videoOn = enabled;
     videoBtn.textContent = videoOn ? '🎬 Видео: вкл' : '🎬 Видео: выкл';
+    document.body.classList.toggle('has-video', videoOn && videoUrl);
     if (videoOn && videoUrl) {
       videoBox.classList.add('show');
       videoEl.src = videoUrl;
