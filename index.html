@@ -115,6 +115,19 @@
   .status { font-size: .9rem; opacity: .8; min-height: 1.2em; }
   .status.error { color: #ff6b6b; }
   .status.ok { color: #4cd964; }
+
+  .video-box {
+    width: 480px;
+    max-width: 92vw;
+    aspect-ratio: 16 / 9;
+    border-radius: 14px;
+    overflow: hidden;
+    background: #000;
+    box-shadow: 0 10px 30px rgba(0,0,0,.5);
+    display: none;
+  }
+  .video-box.show { display: block; }
+  .video-box video { width: 100%; height: 100%; object-fit: contain; display: block; }
 </style>
 </head>
 <body>
@@ -134,7 +147,15 @@
     </button>
   </div>
 
+  <div class="video-box" id="videoBox">
+    <video id="videoEl" loop playsinline muted></video>
+  </div>
+
   <p class="status" id="status"></p>
+
+  <div class="actions">
+    <button class="btn" id="videoBtn">🎬 Видео: выкл</button>
+  </div>
 
   <div class="lock-panel">
     <input type="password" id="codeInput" placeholder="Код выключения" inputmode="numeric" maxlength="6">
@@ -173,6 +194,27 @@
   let soundUrl = null;
   let defaultBeep = null;
 
+  const videoBox = document.getElementById('videoBox');
+  const videoEl = document.getElementById('videoEl');
+  const videoBtn = document.getElementById('videoBtn');
+  let videoUrl = null;
+  let videoOn = false;
+
+  function setVideoEnabled(enabled) {
+    videoOn = enabled;
+    videoBtn.textContent = videoOn ? '🎬 Видео: вкл' : '🎬 Видео: выкл';
+    if (videoOn && videoUrl) {
+      videoBox.classList.add('show');
+      videoEl.src = videoUrl;
+      videoEl.play().catch(() => {});
+    } else {
+      videoBox.classList.remove('show');
+      videoEl.pause();
+      videoEl.removeAttribute('src');
+      videoEl.load();
+    }
+  }
+
   async function loadConfig() {
     try {
       const res = await fetch('config.json', { cache: 'no-store' });
@@ -184,9 +226,20 @@
         button.appendChild(img);
       }
       if (cfg.sound) soundUrl = cfg.sound;
+      if (cfg.video) videoUrl = cfg.video;
+      setVideoEnabled(!!cfg.video && !!cfg.video_on);
     } catch (e) {}
     defaultBeep = beepWavBlob();
   }
+
+  videoBtn.addEventListener('click', () => {
+    if (!videoUrl) {
+      status.className = 'status error';
+      status.textContent = 'Видео ещё не загружено — отправь его боту в Telegram.';
+      return;
+    }
+    setVideoEnabled(!videoOn);
+  });
 
   /* ---------- звук ---------- */
   let playAttempted = false;

@@ -23,7 +23,14 @@ GUIDE = (
     "1. Нажми на скрепку 📎\n"
     "2. Выбери аудио (mp3)\n"
     "3. Нажми отправить\n\n"
-    "И всё! Через минуту на сайте будут новые картинка и звук."
+    "Как сменить видео:\n"
+    "1. Нажми на скрепку 📎\n"
+    "2. Выбери видео (mp4)\n"
+    "3. Нажми отправить\n\n"
+    "Включить или выключить видео на сайте:\n"
+    "/video on — включить\n"
+    "/video off — выключить\n\n"
+    "И всё! Через минуту на сайте будут новые картинка, звук и видео."
 )
 
 
@@ -104,12 +111,12 @@ def gh_delete(path, message):
 def gh_get_config():
     info = gh_get("config.json")
     if not info:
-        return {"image": "", "sound": ""}
+        return {"image": "", "sound": "", "video": "", "video_on": False}
     content = base64.b64decode(info["content"]).decode("utf-8")
     try:
         return json.loads(content)
     except Exception:
-        return {"image": "", "sound": ""}
+        return {"image": "", "sound": "", "video": "", "video_on": False}
 
 
 def gh_save_config(cfg):
@@ -121,17 +128,27 @@ def gh_save_config(cfg):
 
 def ext_for(mime, fname, kind):
     if fname and "." in fname:
-        return Path(fname).suffix.lower() or (".jpg" if kind == "image" else ".mp3")
+        return Path(fname).suffix.lower() or _default_ext(kind)
     if mime:
         exts = {
             "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp",
             "image/gif": ".gif", "audio/mpeg": ".mp3", "audio/mp3": ".mp3",
             "audio/wav": ".wav", "audio/ogg": ".ogg", "audio/mp4": ".m4a",
             "audio/x-m4a": ".m4a", "audio/flac": ".flac", "audio/aac": ".aac",
+            "video/mp4": ".mp4", "video/webm": ".webm", "video/ogg": ".ogg",
+            "video/quicktime": ".mov", "video/x-matroska": ".mkv", "video/avi": ".avi",
         }
         if mime in exts:
             return exts[mime]
-    return ".jpg" if kind == "image" else ".mp3"
+    return _default_ext(kind)
+
+
+def _default_ext(kind):
+    if kind == "image":
+        return ".jpg"
+    if kind == "sound":
+        return ".mp3"
+    return ".mp4"
 
 
 def publish(chat_id, kind, data, mime, fname):
@@ -148,12 +165,16 @@ def publish(chat_id, kind, data, mime, fname):
         except Exception:
             pass
     cfg[kind] = rel
+    if kind == "video":
+        cfg["video_on"] = True
     gh_save_config(cfg)
 
     if kind == "image":
         tg_send(chat_id, "🖼 Готово! Картинка поменялась.\nЧерез минуту она появится на сайте.")
-    else:
+    elif kind == "sound":
         tg_send(chat_id, "🎵 Готово! Звук поменялся.\nЧерез минуту он будет на сайте.")
+    else:
+        tg_send(chat_id, "🎬 Готово! Видео поменялось.\nЧерез минуту оно появится на сайте.")
 
 
 # ---------------- команды ----------------
@@ -163,20 +184,39 @@ def handle_message(msg):
     chat_id = msg["chat"]["id"]
 
     if text in ("/start", "старт", "привет", "здравствуй", "хай", "hello"):
-        tg_send(chat_id, "Привет! Я меняю картинку и звук на сайте.\n\n" + GUIDE)
+        tg_send(chat_id, "Привет! Я меняю картинку, звук и видео на сайте.\n\n" + GUIDE)
         return
     if text in ("/help", "помощь", "что делать", "как"):
         tg_send(chat_id, GUIDE)
         return
     if text in ("/status", "статус", "что на сайте"):
         cfg = gh_get_config()
+        video = cfg.get("video") or "пока нет"
+        if cfg.get("video_on"):
+            video += " ✅ вкл"
+        else:
+            video += " ❌ выкл"
         tg_send(chat_id,
                 f"Сейчас на сайте:\n"
                 f"🖼 Картинка: {cfg.get('image') or 'пока нет'}\n"
-                f"🎵 Звук: {cfg.get('sound') or 'пока нет'}")
+                f"🎵 Звук: {cfg.get('sound') or 'пока нет'}\n"
+                f"🎬 Видео: {video}")
+        return
+    if text.startswith("/video"):
+        words = text.split()
+        if len(words) < 2 or words[1].lower() not in ("on", "off"):
+            tg_send(chat_id, "/video on — включить видео\n/video off — выключить видео")
+            return
+        cfg = gh_get_config()
+        cfg["video_on"] = (words[1].lower() == "on")
+        gh_save_config(cfg)
+        if cfg["video_on"]:
+            tg_send(chat_id, "🎬 Видео включено. Через минуту появится на сайте.")
+        else:
+            tg_send(chat_id, "🎬 Видео выключено.")
         return
     if text.startswith("/"):
-        tg_send(chat_id, "Не знаю такую команду. Просто отправь фото 🖼 или аудио 🎵")
+        tg_send(chat_id, "Не знаю такую команду. Просто отправь фото 🖼, аудио 🎵 или видео 🎬")
         return
 
     photo = msg.get("photo")
@@ -198,11 +238,13 @@ def handle_message(msg):
             publish(chat_id, "image", data, mime, fname)
         elif mime.startswith("audio/"):
             publish(chat_id, "sound", data, mime, fname)
+        elif mime.startswith("video/"):
+            publish(chat_id, "video", data, mime, fname)
         else:
-            tg_send(chat_id, "Это не фото и не музыка. Мне нужно фото 🖼 или аудио 🎵")
+            tg_send(chat_id, "Это не фото, не музыка и не видео. Мне нужно фото 🖼, аудио 🎵 или видео 🎬")
         return
 
-    audio = msg.get("audio") or msg.get("voice") or msg.get("video_note") or msg.get("video")
+    audio = msg.get("audio") or msg.get("voice")
     if audio:
         mime = audio.get("mime_type") if isinstance(audio, dict) else None
         fname = audio.get("file_name") if isinstance(audio, dict) else ""
@@ -211,10 +253,46 @@ def handle_message(msg):
         publish(chat_id, "sound", data, mime, fname)
         return
 
-    tg_send(chat_id, "Отправь фото 🖼 или аудио 🎵 — и я всё сделаю.\nЕсли не понятно — напиши «как».")
+    video = msg.get("video")
+    if video:
+        mime = video.get("mime_type")
+        fname = video.get("file_name") or ""
+        path = tg_api("getFile", file_id=video["file_id"])["result"]["file_path"]
+        data = tg_download(path)
+        publish(chat_id, "video", data, mime, fname)
+        return
+
+    video_note = msg.get("video_note")
+    if video_note:
+        path = tg_api("getFile", file_id=video_note["file_id"])["result"]["file_path"]
+        data = tg_download(path)
+        ext = Path(path).suffix or ".mp4"
+        publish(chat_id, "video", data, "video/" + ext.lstrip("."), "")
+        return
+
+    tg_send(chat_id, "Отправь фото 🖼, аудио 🎵 или видео 🎬 — и я всё сделаю.\nЕсли не понятно — напиши «как».")
 
 
 # ---------------- Vercel handler ----------------
+
+_MENU_DONE = False
+
+
+def _ensure_menu():
+    global _MENU_DONE
+    if _MENU_DONE:
+        return
+    _MENU_DONE = True
+    try:
+        tg_api("setMyCommands", commands=json.dumps([
+            {"command": "start", "description": "Приветствие"},
+            {"command": "help", "description": "Как менять картинку и звук"},
+            {"command": "status", "description": "Что сейчас на сайте"},
+            {"command": "video", "description": "Видео on|off"},
+        ]))
+    except Exception:
+        _MENU_DONE = False
+
 
 class handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
@@ -228,9 +306,11 @@ class handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        _ensure_menu()
         self._send(200, b"bot ok")
 
     def do_POST(self):
+        _ensure_menu()
         if SECRET:
             received = self.headers.get("X-Telegram-Bot-Api-Secret-Token") or ""
             if received != SECRET:
